@@ -23,7 +23,7 @@ static struct fuse_operations lfs_oper = {
 	.release = lfs_release,
 	.write = NULL,
 	.rename = NULL,
-	.utime = NULL 
+	.utime = NULL
 };
 
 int lfs_getattr( const char *path, struct stat *stbuf ) {
@@ -81,4 +81,3 @@ int main( int argc, char *argv[] ) {
 
 	return 0;
 }
-
