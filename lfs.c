@@ -130,6 +130,8 @@ int lfs_readdir( const char *path, void *buf, fuse_fill_dir_t filler, off_t offs
  * regular files that will be called instead.
  */
 int lfs_mknod(const char *path, mode_t mode, dev_t rdev) {
+	(void)mode;
+	(void)rdev;
 	printf("mknod: (path=%s)\n", path);
 	int i = getEmptyIndex();
 	if(i < 0){
@@ -164,6 +166,7 @@ int lfs_mknod(const char *path, mode_t mode, dev_t rdev) {
  * correct directory type bits use  mode|S_IFDIR
  * */
 int lfs_mkdir(const char *path, mode_t mode) {
+	(void)mode;
 	int i = getEmptyIndex();
 	if(i < 0){
 		return -ENOMEM; // Does this error message make sence?
@@ -232,16 +235,18 @@ int lfs_rmdir(const char *path) {
 //Permission
 int lfs_open( const char *path, struct fuse_file_info *fi ) {
     printf("open: (path=%s)\n", path);
+	
 	struct entry *ent = getEntry(path);
-	if(!ent){
-		return -ENOENT;
+	if(ent){
+		fi->fh = (uint64_t) ent;
 	}
 	return 0;
 }
 
 int lfs_read( const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi ) {
     printf("read: (path=%s)\n", path);
-	struct entry *ent = getEntry(path);
+	//struct entry *ent = getEntry(path);
+	struct entry *ent = (struct entry *) fi->fh;
 	if(!ent){
 		return -ENOENT;
 	}
@@ -262,7 +267,8 @@ int lfs_release(const char *path, struct fuse_file_info *fi) {
 
 int lfs_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
 	printf("write: (path=%s)\n", path);
-	struct entry *ent = getEntry(path);
+	//struct entry *ent = getEntry(path);
+	struct entry *ent = (struct entry *) fi->fh;
 	if(!ent){
 		return -ENOENT;
 	}
@@ -289,6 +295,16 @@ int main( int argc, char *argv[] ) {
 	entries = calloc(sizeof(struct entry),MAX_ENTRIES);
 	if(!entries)
 		return -ENOMEM;
+
+	entries[0] = calloc(sizeof(struct entry), 1);
+	if(!entries[0]){
+		free(entries);
+		return -ENOMEM;
+	}
+
+	entries[0]->full_path = "/";
+	entries[0]->path = "/";
+	entries[0]->name = "/";
 
 	fuse_main( argc, argv, &lfs_oper );
 
