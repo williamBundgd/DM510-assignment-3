@@ -27,10 +27,12 @@ struct entry {
 	char *content;
 };
 
-struct entry **entries; //Array of files and directories
+static struct entry *entries[MAX_ENTRIES]; //Array of files and directories
 
 struct entry *getEntry(const char *path);
 int getEmptyIndex();
+char *getPath(const char *full_path);
+char *getName(const char *full_path);
 
 static struct fuse_operations lfs_oper = {
 	.getattr	= lfs_getattr,
@@ -47,6 +49,7 @@ static struct fuse_operations lfs_oper = {
 	.rename = NULL,
 	.utime = NULL
 };
+
 
 int getEmptyIndex() {
 	for(int i = 0; i < MAX_ENTRIES; i++){
@@ -67,10 +70,44 @@ struct entry *getEntry(const char *path) {
 	return res;
 }
 
+char *getPath(const char *full_path) {
+	size_t length = 0;
+	for(size_t i = 0; i < strlen(full_path); i++) {
+		if(full_path[i] == '/') 
+		  length = i;
+	}
+
+	char *path = calloc(sizeof(char),length + 1);
+	if(!path) {
+		return NULL;
+	}
+	memcpy(path, full_path, length);
+
+	return path;
+}
+
+char *getName(const char *full_path) {
+	size_t length = 0;
+	size_t full_length = strlen(full_path);
+	for(size_t i = 0; i < full_length; i++) {
+		if(full_path[i] == '/') 
+		  length = i;
+	}
+
+	char *name = calloc(sizeof(char), full_length - length);
+	if(!name) {
+		return NULL;
+	}
+	memcpy(name, full_path + length+1, full_length - length);
+
+	return name;
+}
+
+
 int lfs_getattr( const char *path, struct stat *stbuf ) {
 	int res = 0;
 	printf("getattr: (path=%s)\n", path);
-
+	
 	memset(stbuf, 0, sizeof(struct stat));
 	if( strcmp( path, "/" ) == 0 ) {
 		stbuf->st_mode = S_IFDIR | 0755;
@@ -99,18 +136,18 @@ int lfs_getattr( const char *path, struct stat *stbuf ) {
 }
 
 int lfs_readdir( const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi ) {
-	(void) offset;
-	(void) fi;
 	printf("readdir: (path=%s)\n", path);
 
-	int dir_exists = 0;
-	for(int i = 0; i < MAX_ENTRIES; i++) {
-		if(strcmp(entries[i]->full_path, path) == 0)
-		  dir_exists = 1;
+	if(strcmp(path, "/") != 0) {
+		int dir_exists = 0;
+		for(int i = 0; i < MAX_ENTRIES; i++) {
+			if(strcmp(entries[i]->full_path, path) == 0)
+			dir_exists = 1;
+		}
+		
+		if(!dir_exists)
+		return -ENOENT;
 	}
-	
-	if(!dir_exists)
-	 return -ENOENT;
 
 	filler(buf, ".", NULL, 0);
 	filler(buf, "..", NULL, 0);
@@ -151,10 +188,8 @@ int lfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 	ent->atime = time (NULL);
 	ent->mtime = time (NULL);
 	ent->ctime = time (NULL);
-	ent->name = strrchr(path,'/'); // Is this right ????
-	size_t pathLen = strlen(path)-strlen(ent->name);
-	ent->path = calloc(sizeof(char),pathLen);
-	memcpy(ent->path, path, pathLen);
+	ent->name = getName(path);
+	ent->path = getPath(path);
 
 	return 0;
 }
@@ -166,7 +201,7 @@ int lfs_mknod(const char *path, mode_t mode, dev_t rdev) {
  * correct directory type bits use  mode|S_IFDIR
  * */
 int lfs_mkdir(const char *path, mode_t mode) {
-	(void)mode;
+	printf("making dir = %s\n", path);
 	int i = getEmptyIndex();
 	if(i < 0){
 		return -ENOMEM; // Does this error message make sence?
@@ -185,10 +220,8 @@ int lfs_mkdir(const char *path, mode_t mode) {
 	ent->atime = time (NULL);
 	ent->mtime = time (NULL);
 	ent->ctime = time (NULL);
-	ent->name = strrchr(path,'/'); // Is this right ????
-	size_t pathLen = strlen(path)-strlen(ent->name);
-	ent->path = calloc(sizeof(char),pathLen);
-	memcpy(ent->path, path, pathLen);
+	ent->name = getName(path);
+	ent->path = getPath(path);
 	return 0;
 }
 
@@ -236,9 +269,13 @@ int lfs_rmdir(const char *path) {
 int lfs_open( const char *path, struct fuse_file_info *fi ) {
     printf("open: (path=%s)\n", path);
 	
-	struct entry *ent = getEntry(path);
-	if(ent){
-		fi->fh = (uint64_t) ent;
+	if(strcmp(path, "/")) {
+		fi->fh = (uint64_t) entries[0];
+	} else {
+		struct entry *ent = getEntry(path);
+		if(ent){
+			fi->fh = (uint64_t) ent;
+		}
 	}
 	return 0;
 }
@@ -292,22 +329,30 @@ int lfs_write(const char *path, const char *buf, size_t size, off_t offset, stru
 
 int main( int argc, char *argv[] ) {
 
-	entries = calloc(sizeof(struct entry),MAX_ENTRIES);
+	/*
+	entries = calloc(sizeof(struct entry *),MAX_ENTRIES);
 	if(!entries)
 		return -ENOMEM;
+	*/
 
+	/*
 	entries[0] = calloc(sizeof(struct entry), 1);
 	if(!entries[0]){
 		free(entries);
 		return -ENOMEM;
 	}
+	*/
 
+	/*
+	entries[0]->full_path = calloc(sizeof(char),1);
 	entries[0]->full_path = "/";
-	entries[0]->path = "/";
-	entries[0]->name = "/";
+	entries[0]->path = NULL;
+	entries[0]->name = NULL;
+	*/
 
-	fuse_main( argc, argv, &lfs_oper );
+	fuse_main( argc, argv, &lfs_oper);
 
+	/*
 	for(int i = 0; i < MAX_ENTRIES; i++){
 		if(entries[i]) {
 			if(entries[i]->content)
@@ -322,6 +367,7 @@ int main( int argc, char *argv[] ) {
 		}
 	}
 	free(entries);
+	*/
 
 	return 0;
 }
