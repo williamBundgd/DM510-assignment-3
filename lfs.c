@@ -64,24 +64,31 @@ struct entry *getEntry(const char *path) {
 	struct entry *res = NULL;
 
 	for (int i = 0; i < MAX_ENTRIES; i++) {
-		if (strcmp(entries[i]->full_path, path) == 0)
-		  res = entries[i];
+		if(entries[i])
+		  if (strcmp(entries[i]->full_path, path) == 0) {
+			printf("Found entry: %s\n",path);
+			return entries[i];
+		  }
 	}
 	return res;
 }
 
 char *getPath(const char *full_path) {
-	size_t length = 0;
-	for(size_t i = 0; i < strlen(full_path); i++) {
-		if(full_path[i] == '/') 
-		  length = i;
-	}
+	char *name = getName(full_path);
+	size_t name_length = strlen(name);
+	size_t full_length = strlen(full_path);
+	free(name);
 
-	char *path = calloc(sizeof(char),length + 1);
+	size_t i = 1;
+
+	if (full_length - name_length == 1)
+	  i = 0;
+
+	char *path = calloc(sizeof(char),full_length - name_length - i);
 	if(!path) {
 		return NULL;
 	}
-	memcpy(path, full_path, length);
+	memcpy(path, full_path, full_length - name_length - i);
 
 	return path;
 }
@@ -116,11 +123,14 @@ int lfs_getattr( const char *path, struct stat *stbuf ) {
 		struct entry *ent = getEntry(path);
 
 		if(!ent){
+			printf("entry not found\n");
 			return -ENOENT;
 		}
 
-		if(ent->isDir){
-			stbuf->st_mode = S_IFREG | 0755;
+		printf("entry found: %s\n",ent->name);
+
+		if(ent->isDir == 1){
+			stbuf->st_mode = S_IFDIR | 0755;
 			stbuf->st_nlink = 2;
 		} else {
 			stbuf->st_mode = S_IFREG | 0777;
@@ -141,8 +151,9 @@ int lfs_readdir( const char *path, void *buf, fuse_fill_dir_t filler, off_t offs
 	if(strcmp(path, "/") != 0) {
 		int dir_exists = 0;
 		for(int i = 0; i < MAX_ENTRIES; i++) {
-			if(strcmp(entries[i]->full_path, path) == 0)
-			dir_exists = 1;
+			if(entries[i])
+				if(strcmp(entries[i]->full_path, path) == 0)
+					dir_exists = 1;
 		}
 		
 		if(!dir_exists)
@@ -152,9 +163,10 @@ int lfs_readdir( const char *path, void *buf, fuse_fill_dir_t filler, off_t offs
 	filler(buf, ".", NULL, 0);
 	filler(buf, "..", NULL, 0);
 	for(int i = 0; i < MAX_ENTRIES; i++) {
-		if(strcmp(entries[i]->path, path) == 0) {
-			filler(buf, entries[i]->name, NULL, 0);
-		}
+		if(entries[i])
+		  if(strcmp(entries[i]->path, path) == 0) {
+	  		filler(buf, entries[i]->name, NULL, 0);
+		  }
 	}
 
 	return 0;
@@ -167,8 +179,6 @@ int lfs_readdir( const char *path, void *buf, fuse_fill_dir_t filler, off_t offs
  * regular files that will be called instead.
  */
 int lfs_mknod(const char *path, mode_t mode, dev_t rdev) {
-	(void)mode;
-	(void)rdev;
 	printf("mknod: (path=%s)\n", path);
 	int i = getEmptyIndex();
 	if(i < 0){
@@ -184,12 +194,16 @@ int lfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 	ent->size = 0;
 	ent->full_path = calloc(sizeof(char),strlen(path));
 	strcpy(ent->full_path, path);
+	printf("full path = %s\n", ent->full_path);
 	ent->isDir = 0;
 	ent->atime = time (NULL);
 	ent->mtime = time (NULL);
 	ent->ctime = time (NULL);
 	ent->name = getName(path);
+	printf("name = %s\n", ent->name);
 	ent->path = getPath(path);
+	printf("path = %s\n", ent->path);
+	ent->content = NULL;
 
 	return 0;
 }
@@ -216,12 +230,17 @@ int lfs_mkdir(const char *path, mode_t mode) {
 	ent->size = 0;
 	ent->full_path = calloc(sizeof(char),strlen(path));
 	strcpy(ent->full_path, path);
+	printf("full path = %s\n", ent->full_path);
 	ent->isDir = 1;
 	ent->atime = time (NULL);
 	ent->mtime = time (NULL);
 	ent->ctime = time (NULL);
 	ent->name = getName(path);
+	printf("name = %s\n", ent->name);
 	ent->path = getPath(path);
+	printf("path = %s\n", ent->path);
+	ent->content = NULL;
+
 	return 0;
 }
 
@@ -282,8 +301,8 @@ int lfs_open( const char *path, struct fuse_file_info *fi ) {
 
 int lfs_read( const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi ) {
     printf("read: (path=%s)\n", path);
-	//struct entry *ent = getEntry(path);
-	struct entry *ent = (struct entry *) fi->fh;
+	struct entry *ent = getEntry(path);
+	//struct entry *ent = (struct entry *) fi->fh;
 	if(!ent){
 		return -ENOENT;
 	}
@@ -304,8 +323,8 @@ int lfs_release(const char *path, struct fuse_file_info *fi) {
 
 int lfs_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
 	printf("write: (path=%s)\n", path);
-	//struct entry *ent = getEntry(path);
-	struct entry *ent = (struct entry *) fi->fh;
+	struct entry *ent = getEntry(path);
+	//struct entry *ent = (struct entry *) fi->fh;
 	if(!ent){
 		return -ENOENT;
 	}
@@ -328,46 +347,6 @@ int lfs_write(const char *path, const char *buf, size_t size, off_t offset, stru
 }
 
 int main( int argc, char *argv[] ) {
-
-	/*
-	entries = calloc(sizeof(struct entry *),MAX_ENTRIES);
-	if(!entries)
-		return -ENOMEM;
-	*/
-
-	/*
-	entries[0] = calloc(sizeof(struct entry), 1);
-	if(!entries[0]){
-		free(entries);
-		return -ENOMEM;
-	}
-	*/
-
-	/*
-	entries[0]->full_path = calloc(sizeof(char),1);
-	entries[0]->full_path = "/";
-	entries[0]->path = NULL;
-	entries[0]->name = NULL;
-	*/
-
 	fuse_main( argc, argv, &lfs_oper);
-
-	/*
-	for(int i = 0; i < MAX_ENTRIES; i++){
-		if(entries[i]) {
-			if(entries[i]->content)
-				free(entries[i]->content);
-			if(entries[i]->name)
-				free(entries[i]->name);
-			if(entries[i]->path)
-				free(entries[i]->path);
-			if(entries[i]->full_path)
-				free(entries[i]->full_path);
-			free(entries[i]);
-		}
-	}
-	free(entries);
-	*/
-
 	return 0;
 }
