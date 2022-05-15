@@ -194,7 +194,7 @@ int lfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 	printf("mknod: (path=%s)\n", path);
 	int i = getEmptyIndex();
 	if(i < 0){
-		return -ENOMEM; // Does this error message make sence?
+		return -ENOSPC; // Does this error message make sence?
 	}
 	entries[i] = calloc(sizeof(struct entry), 1);
 	if(!entries[i]){
@@ -233,7 +233,7 @@ int lfs_mkdir(const char *path, mode_t mode) {
 	printf("making dir = %s\n", path);
 	int i = getEmptyIndex();
 	if(i < 0){
-		return -ENOMEM; // Does this error message make sence?
+		return -ENOSPC; // Does this error message make sence?
 	}
 	entries[i] = calloc(sizeof(struct entry), 1);
 	if(!entries[i]){
@@ -309,10 +309,13 @@ int lfs_open( const char *path, struct fuse_file_info *fi ) {
 		fi->fh = (uint64_t) entries[0];
 	} else {
 		struct entry *ent = getEntry(path);
-		if(ent){
-			fi->fh = (uint64_t) ent;
+		if(!ent){
+			//fi->fh = (uint64_t) ent;
+			return -ENOENT;
 		}
+
 	}
+
 	return 0;
 }
 
@@ -375,8 +378,6 @@ int main( int argc, char *argv[] ) {
 	time_t time[1];
 	int count[1];
 
-	uint64_t data[1];
-
 	size_t l;
 
 	file = fopen(argv[3], "rb");
@@ -387,43 +388,45 @@ int main( int argc, char *argv[] ) {
 	
 	int i = 0;
 	l = fread(count, sizeof(int), 1, file);
-	while(i < count[0]) {
-		entries[i] = calloc(sizeof(struct entry), 1);
-		if(!entries[i]){
-			return -ENOMEM;
+	if(l > 0 && count[0] > 0 && count[0] <= MAX_ENTRIES) {
+		while(i < count[0]) {
+			entries[i] = calloc(sizeof(struct entry), 1);
+			if(!entries[i]){
+				return -ENOMEM;
+			}
+			l = fread(size, sizeof(size_t), 1, file);
+			entries[i]->full_path = calloc(sizeof(char), size[0]);
+			if(!entries[i]->full_path) {
+				return -ENOMEM;
+			}
+			l = fread(entries[i]->full_path, sizeof(char), size[0], file);
+			printf("found: %s\n", entries[i]->full_path);
+			entries[i]->name = getName(entries[i]->full_path);
+			entries[i]->path = getPath(entries[i]->full_path);
+
+			l = fread(isDir, sizeof(int), 1, file);
+			entries[i]->isDir = isDir[0];
+
+			l = fread(time, sizeof(time_t), 1, file);
+			entries[i]->atime = time[0];
+			
+			l = fread(time, sizeof(time_t), 1, file);
+			entries[i]->mtime = time[0];
+			
+			l = fread(time, sizeof(time_t), 1, file);
+			entries[i]->ctime = time[0];
+			
+			l = fread(size, sizeof(size_t), 1, file);
+			entries[i]->size = (off_t) size[0];
+
+			if(!entries[i]->isDir && entries[i]->size > 0) {
+				entries[i]->content = calloc(sizeof(char), entries[i]->size);
+				l = fread(entries[i]->content, sizeof(char), entries[i]->size, file);
+			}
+
+			i++;
+
 		}
-		l = fread(size, sizeof(size_t), 1, file);
-		entries[i]->full_path = calloc(sizeof(char), size[0]);
-		if(!entries[i]->full_path) {
-			return -ENOMEM;
-		}
-		l = fread(entries[i]->full_path, sizeof(char), size[0], file);
-		printf("found: %s\n", entries[i]->full_path);
-		entries[i]->name = getName(entries[i]->full_path);
-		entries[i]->path = getPath(entries[i]->full_path);
-
-		l = fread(isDir, sizeof(int), 1, file);
-		entries[i]->isDir = isDir[0];
-
-		l = fread(time, sizeof(time_t), 1, file);
-		entries[i]->atime = time[0];
-		
-		l = fread(time, sizeof(time_t), 1, file);
-		entries[i]->mtime = time[0];
-		
-		l = fread(time, sizeof(time_t), 1, file);
-		entries[i]->ctime = time[0];
-		
-		l = fread(size, sizeof(size_t), 1, file);
-		entries[i]->size = (off_t) size[0];
-
-		if(!entries[i]->isDir && entries[i]->size > 0) {
-			entries[i]->content = calloc(sizeof(char), entries[i]->size);
-			l = fread(entries[i]->content, sizeof(char), entries[i]->size, file);
-		}
-
-		i++;
-
 	}
 	
 
