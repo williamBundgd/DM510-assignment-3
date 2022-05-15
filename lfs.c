@@ -33,6 +33,7 @@ struct entry *getEntry(const char *path);
 int getEmptyIndex();
 char *getPath(const char *full_path);
 char *getName(const char *full_path);
+int getEntryIndex(const char *path);
 
 static struct fuse_operations lfs_oper = {
 	.getattr	= lfs_getattr,
@@ -71,6 +72,17 @@ struct entry *getEntry(const char *path) {
 		  }
 	}
 	return res;
+}
+
+int getEntryIndex(const char *path) {
+	for (int i = 0; i < MAX_ENTRIES; i++) {
+		if(entries[i])
+		  if (strcmp(entries[i]->full_path, path) == 0) {
+			printf("Found entry index: %s\n",path);
+			return i;
+		  }
+	}
+	return -1;
 }
 
 char *getPath(const char *full_path) {
@@ -190,9 +202,11 @@ int lfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 	}
 
 	struct entry *ent = entries[i];
-
 	ent->size = 0;
 	ent->full_path = calloc(sizeof(char),strlen(path));
+	if(!ent->full_path){
+		return -ENOMEM;
+	}
 	strcpy(ent->full_path, path);
 	printf("full path = %s\n", ent->full_path);
 	ent->isDir = 0;
@@ -204,6 +218,7 @@ int lfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 	ent->path = getPath(path);
 	printf("path = %s\n", ent->path);
 	ent->content = NULL;
+	
 
 	return 0;
 }
@@ -246,40 +261,42 @@ int lfs_mkdir(const char *path, mode_t mode) {
 
 /** Remove a file */
 int lfs_unlink(const char *path) {
-		struct entry *ent = getEntry(path);
-	if(!ent)
+	int i = getEntryIndex(path);
+	if(i < 0)
 		return 0;
 
-	if(ent->content)
-		free(ent->content);
-	if(ent->name)
-		free(ent->name);
-	if(ent->path)
-		free(ent->path);
-	if(ent->full_path)
-		free(ent->full_path);
+	if(entries[i]->content)
+		free(entries[i]->content);
+	if(entries[i]->name)
+		free(entries[i]->name);
+	if(entries[i]->path)
+		free(entries[i]->path);
+	if(entries[i]->full_path)
+		free(entries[i]->full_path);
 	
-	free(ent);
+	free(entries[i]);
+	entries[i] = NULL;
 
 	return 0;
 }
 
 /** Remove a directory */
 int lfs_rmdir(const char *path) {
-	struct entry *ent = getEntry(path);
-	if(!ent)
+	int i = getEntryIndex(path);
+	if(i < 0)
 		return 0;
 
-	if(ent->content)
-		free(ent->content);
-	if(ent->name)
-		free(ent->name);
-	if(ent->path)
-		free(ent->path);
-	if(ent->full_path)
-		free(ent->full_path);
+	if(entries[i]->content)
+		free(entries[i]->content);
+	if(entries[i]->name)
+		free(entries[i]->name);
+	if(entries[i]->path)
+		free(entries[i]->path);
+	if(entries[i]->full_path)
+		free(entries[i]->full_path);
 	
-	free(ent);
+	free(entries[i]);
+	entries[i] = NULL;
 
 	return 0;
 }
@@ -347,6 +364,130 @@ int lfs_write(const char *path, const char *buf, size_t size, off_t offset, stru
 }
 
 int main( int argc, char *argv[] ) {
-	fuse_main( argc, argv, &lfs_oper);
+
+	if(argc < 3) {
+		return -1;
+	}
+
+	FILE *file;
+	int isDir[1];
+	size_t size[1];
+	time_t time[1];
+	int count[1];
+
+	uint64_t data[1];
+
+	size_t l;
+
+	file = fopen(argv[3], "rb");
+	if(!file){
+		return -1;
+	}
+	// Read the file into memory 
+	
+	int i = 0;
+	l = fread(count, sizeof(int), 1, file);
+	while(i < count[0]) {
+		entries[i] = calloc(sizeof(struct entry), 1);
+		if(!entries[i]){
+			return -ENOMEM;
+		}
+		l = fread(size, sizeof(size_t), 1, file);
+		entries[i]->full_path = calloc(sizeof(char), size[0]);
+		if(!entries[i]->full_path) {
+			return -ENOMEM;
+		}
+		l = fread(entries[i]->full_path, sizeof(char), size[0], file);
+		printf("found: %s\n", entries[i]->full_path);
+		entries[i]->name = getName(entries[i]->full_path);
+		entries[i]->path = getPath(entries[i]->full_path);
+
+		l = fread(isDir, sizeof(int), 1, file);
+		entries[i]->isDir = isDir[0];
+
+		l = fread(time, sizeof(time_t), 1, file);
+		entries[i]->atime = time[0];
+		
+		l = fread(time, sizeof(time_t), 1, file);
+		entries[i]->mtime = time[0];
+		
+		l = fread(time, sizeof(time_t), 1, file);
+		entries[i]->ctime = time[0];
+		
+		l = fread(size, sizeof(size_t), 1, file);
+		entries[i]->size = (off_t) size[0];
+
+		if(!entries[i]->isDir && entries[i]->size > 0) {
+			entries[i]->content = calloc(sizeof(char), entries[i]->size);
+			l = fread(entries[i]->content, sizeof(char), entries[i]->size, file);
+		}
+
+		i++;
+
+	}
+	
+
+	fclose(file);
+	
+
+
+	fuse_main( 3, argv, &lfs_oper);
+
+
+	file = fopen(argv[3], "wb");
+	if(!file){
+		return -1;
+	}
+
+	
+	count[0] = 0;
+
+	for(int j = 0; j < MAX_ENTRIES; j++) {
+		if(entries[j]) {
+			count[0]++;
+		}
+	}
+
+	fwrite(count, sizeof(int), 1, file);
+
+	for(int j = 0; j < MAX_ENTRIES; j++) {
+		if(entries[j]){
+
+			//fwrite(entries[j]->size, sizeof(size_t), 1, file);
+			//		entries[i] = calloc(sizeof(struct entry), 1);
+
+			size[0] = strlen(entries[j]->full_path);
+			fwrite(size, sizeof(size_t), 1, file);
+			fwrite(entries[j]->full_path, sizeof(char), size[0], file);
+			
+			isDir[0] = entries[j]->isDir;
+			fwrite(isDir, sizeof(int), 1, file);
+
+			time[0] = entries[j]->atime;
+			fwrite(time, sizeof(time_t), 1, file);
+
+			time[0] = entries[j]->mtime;
+			fwrite(time, sizeof(time_t), 1, file);
+
+			time[0] = entries[j]->ctime;
+			fwrite(time, sizeof(time_t), 1, file);
+
+			size[0] = (size_t) entries[j]->size;
+			fwrite(size, sizeof(size_t), 1, file);
+
+			if(!entries[j]->isDir && entries[j]->size > 0) {
+				fwrite(entries[j]->content, sizeof(char), entries[j]->size, file);
+			}
+
+			free(entries[j]->content);
+			free(entries[j]->name);
+			free(entries[j]->path);
+			free(entries[j]->full_path);
+			free(entries[j]);
+		}
+	}
+
+	fclose(file);
+
 	return 0;
 }
