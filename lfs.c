@@ -384,44 +384,46 @@ int lfs_rename(const char* from, const char* to) {
 		return -ENOENT;
 	}
 
-	int old = getEntryIndex(to);
-	if(old >= 0){
-		if(entries[old]->content)
-			free(entries[old]->content);
-		if(entries[old]->name)
-			free(entries[old]->name);
-		if(entries[old]->path)
-			free(entries[old]->path);
-		if(entries[old]->full_path)
-			free(entries[old]->full_path);
-		
-		free(entries[old]);
-		entries[old] = NULL;
-	}
+	if(strcmp(from, to) != 0) {
+		int old = getEntryIndex(to);
 
+		free(ent->full_path);
+		free(ent->name);
+		free(ent->path);
 
-	free(ent->full_path);
-	free(ent->name);
-	free(ent->path);
+		ent->full_path = calloc(sizeof(char),strlen(to));
+		if(!ent->full_path){
+			return -ENOMEM;
+		}
+		strcpy(ent->full_path, to);
+		printf("full path = %s\n", ent->full_path);
+		ent->name = getName(to);
+		if(!ent->name){
+			return -ENOMEM;
+		}
+		printf("name = %s\n", ent->name);
+		ent->path = getPath(to);
+		if(!ent->path){
+			return -ENOMEM;
+		}
+		printf("path = %s\n", ent->path);
+		ent->mtime = time(NULL);
+		ent->atime = time(NULL);
 
-	ent->full_path = calloc(sizeof(char),strlen(to));
-	if(!ent->full_path){
-		return -ENOMEM;
+		if(entries[old]){
+			if(entries[old]->content)
+				free(entries[old]->content);
+			if(entries[old]->name)
+				free(entries[old]->name);
+			if(entries[old]->path)
+				free(entries[old]->path);
+			if(entries[old]->full_path)
+				free(entries[old]->full_path);
+			
+			free(entries[old]);
+			entries[old] = NULL;
+		}
 	}
-	strcpy(ent->full_path, to);
-	printf("full path = %s\n", ent->full_path);
-	ent->name = getName(to);
-	if(!ent->name){
-		return -ENOMEM;
-	}
-	printf("name = %s\n", ent->name);
-	ent->path = getPath(to);
-	if(!ent->path){
-		return -ENOMEM;
-	}
-	printf("path = %s\n", ent->path);
-	ent->mtime = time(NULL);
-	ent->atime = time(NULL);
 
 	return 0;
 }
@@ -448,6 +450,8 @@ int lfs_truncate(const char* path, off_t size) {
 		free(ent->content);
 	}
 
+	ent->content = new_content;
+
 	ent->size = size;
 
 	ent->mtime = time(NULL);
@@ -457,6 +461,17 @@ int lfs_truncate(const char* path, off_t size) {
 }
 
 int lfs_utime(const char *path, struct utimbuf *buf) {
+	printf("utime: (path=%s)\n", path);
+	struct entry *ent = getEntry(path);
+	if(!ent){
+		return -ENOENT;
+	}
+
+	if(buf) {
+		ent->atime = buf->actime;
+		ent->mtime = buf->modtime;
+	}
+
 	return 0;
 }
 
