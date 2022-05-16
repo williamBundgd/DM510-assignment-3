@@ -16,6 +16,9 @@ int lfs_mknod(const char *path, mode_t mode, dev_t rdev);
 int lfs_mkdir(const char *path, mode_t mode);
 int lfs_unlink(const char *path);
 int lfs_rmdir(const char *path);
+int lfs_rename(const char *from, const char *to);
+int lfs_truncate(const char *path, off_t size);
+int lfs_utime(const char *path, struct utimbuf *buf);
 
 struct entry {
 	char *full_path;
@@ -42,13 +45,13 @@ static struct fuse_operations lfs_oper = {
 	.mkdir = lfs_mkdir,
 	.unlink = lfs_unlink,
 	.rmdir = lfs_rmdir,
-	.truncate = NULL,
+	.truncate = lfs_truncate,
 	.open	= lfs_open,
 	.read	= lfs_read,
 	.release = lfs_release,
 	.write = lfs_write,
-	.rename = NULL,
-	.utime = NULL
+	.rename = lfs_rename,
+	.utime = lfs_utime
 };
 
 
@@ -214,8 +217,14 @@ int lfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 	ent->mtime = time (NULL);
 	ent->ctime = time (NULL);
 	ent->name = getName(path);
+	if(!ent->name){
+		return -ENOMEM;
+	}
 	printf("name = %s\n", ent->name);
 	ent->path = getPath(path);
+	if(!ent->path){
+		return -ENOMEM;
+	}
 	printf("path = %s\n", ent->path);
 	ent->content = NULL;
 	
@@ -251,8 +260,14 @@ int lfs_mkdir(const char *path, mode_t mode) {
 	ent->mtime = time (NULL);
 	ent->ctime = time (NULL);
 	ent->name = getName(path);
+	if(!ent->name){
+		return -ENOMEM;
+	}
 	printf("name = %s\n", ent->name);
 	ent->path = getPath(path);
+	if(!ent->path){
+		return -ENOMEM;
+	}
 	printf("path = %s\n", ent->path);
 	ent->content = NULL;
 
@@ -305,15 +320,11 @@ int lfs_rmdir(const char *path) {
 int lfs_open( const char *path, struct fuse_file_info *fi ) {
     printf("open: (path=%s)\n", path);
 	
-	if(strcmp(path, "/")) {
-		fi->fh = (uint64_t) entries[0];
-	} else {
+	if(strcmp(path, "/") != 0) {
 		struct entry *ent = getEntry(path);
-		if(!ent){
-			//fi->fh = (uint64_t) ent;
-			return -ENOENT;
+		if(ent){
+			fi->fh = (uint64_t) ent;
 		}
-
 	}
 
 	return 0;
@@ -321,8 +332,8 @@ int lfs_open( const char *path, struct fuse_file_info *fi ) {
 
 int lfs_read( const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi ) {
     printf("read: (path=%s)\n", path);
-	struct entry *ent = getEntry(path);
-	//struct entry *ent = (struct entry *) fi->fh;
+	//struct entry *ent = getEntry(path);
+	struct entry *ent = (struct entry *) fi->fh;
 	if(!ent){
 		return -ENOENT;
 	}
@@ -343,8 +354,8 @@ int lfs_release(const char *path, struct fuse_file_info *fi) {
 
 int lfs_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
 	printf("write: (path=%s)\n", path);
-	struct entry *ent = getEntry(path);
-	//struct entry *ent = (struct entry *) fi->fh;
+	//struct entry *ent = getEntry(path);
+	struct entry *ent = (struct entry *) fi->fh;
 	if(!ent){
 		return -ENOENT;
 	}
@@ -364,6 +375,89 @@ int lfs_write(const char *path, const char *buf, size_t size, off_t offset, stru
 	ent->size = size;
 
 	return size;
+}
+
+int lfs_rename(const char* from, const char* to) {
+	printf("rename: path: %s to: %s\n", from, to);
+	struct entry *ent = getEntry(from);
+	if(!ent){
+		return -ENOENT;
+	}
+
+	int old = getEntryIndex(to);
+	if(old >= 0){
+		if(entries[old]->content)
+			free(entries[old]->content);
+		if(entries[old]->name)
+			free(entries[old]->name);
+		if(entries[old]->path)
+			free(entries[old]->path);
+		if(entries[old]->full_path)
+			free(entries[old]->full_path);
+		
+		free(entries[old]);
+		entries[old] = NULL;
+	}
+
+
+	free(ent->full_path);
+	free(ent->name);
+	free(ent->path);
+
+	ent->full_path = calloc(sizeof(char),strlen(to));
+	if(!ent->full_path){
+		return -ENOMEM;
+	}
+	strcpy(ent->full_path, to);
+	printf("full path = %s\n", ent->full_path);
+	ent->name = getName(to);
+	if(!ent->name){
+		return -ENOMEM;
+	}
+	printf("name = %s\n", ent->name);
+	ent->path = getPath(to);
+	if(!ent->path){
+		return -ENOMEM;
+	}
+	printf("path = %s\n", ent->path);
+	ent->mtime = time(NULL);
+	ent->atime = time(NULL);
+
+	return 0;
+}
+
+int lfs_truncate(const char* path, off_t size) {
+	printf("trauncate: (path=%s)\n", path);
+	struct entry *ent = getEntry(path);
+	if(!ent){
+		return -ENOENT;
+	}
+
+	char *new_content = calloc(sizeof(char), size);
+	if(!new_content){
+		return -ENOMEM;
+	}
+
+	if(ent->content) {
+		if(ent->size > size) {
+			memcpy(new_content, ent->content, size);
+		} else {
+			memcpy(new_content, ent->content, ent->size);
+		}
+
+		free(ent->content);
+	}
+
+	ent->size = size;
+
+	ent->mtime = time(NULL);
+	ent->atime = time(NULL);
+
+	return 0;
+}
+
+int lfs_utime(const char *path, struct utimbuf *buf) {
+	return 0;
 }
 
 int main( int argc, char *argv[] ) {
