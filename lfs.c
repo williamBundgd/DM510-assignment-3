@@ -482,10 +482,8 @@ int main( int argc, char *argv[] ) {
 	}
 
 	FILE *file;
-	int isDir[1];
-	size_t size[1];
-	time_t time[1];
-	int count[1];
+	size_t size;
+	int count; 
 
 	size_t l;
 
@@ -496,37 +494,28 @@ int main( int argc, char *argv[] ) {
 	// Read the file into memory 
 	
 	int i = 0;
-	l = fread(count, sizeof(int), 1, file);
-	if(l > 0 && count[0] > 0 && count[0] <= MAX_ENTRIES) {
-		while(i < count[0]) {
+	l = fread(&count, sizeof(int), 1, file);
+	if(l > 0 && count > 0 && count <= MAX_ENTRIES) {
+		while(i < count) {
 			entries[i] = calloc(sizeof(struct entry), 1);
 			if(!entries[i]){
 				return -ENOMEM;
 			}
-			l = fread(size, sizeof(size_t), 1, file);
-			entries[i]->full_path = calloc(sizeof(char), size[0]);
+			l = fread(&size, sizeof(size_t), 1, file);
+			entries[i]->full_path = calloc(sizeof(char), size);
 			if(!entries[i]->full_path) {
 				return -ENOMEM;
 			}
-			l = fread(entries[i]->full_path, sizeof(char), size[0], file);
+			l = fread(entries[i]->full_path, sizeof(char), size, file);
 			printf("found: %s\n", entries[i]->full_path);
 			entries[i]->name = getName(entries[i]->full_path);
 			entries[i]->path = getPath(entries[i]->full_path);
 
-			l = fread(isDir, sizeof(int), 1, file);
-			entries[i]->isDir = isDir[0];
-
-			l = fread(time, sizeof(time_t), 1, file);
-			entries[i]->atime = time[0];
-			
-			l = fread(time, sizeof(time_t), 1, file);
-			entries[i]->mtime = time[0];
-			
-			l = fread(time, sizeof(time_t), 1, file);
-			entries[i]->ctime = time[0];
-			
-			l = fread(size, sizeof(size_t), 1, file);
-			entries[i]->size = (off_t) size[0];
+			l = fread(&entries[i]->isDir, sizeof(int), 1, file);
+			l = fread(&entries[i]->atime, sizeof(time_t), 1, file);
+			l = fread(&entries[i]->mtime, sizeof(time_t), 1, file);
+			l = fread(&entries[i]->ctime, sizeof(time_t), 1, file);
+			l = fread(&entries[i]->size, sizeof(size_t), 1, file);
 
 			if(!entries[i]->isDir && entries[i]->size > 0) {
 				entries[i]->content = calloc(sizeof(char), entries[i]->size);
@@ -552,40 +541,26 @@ int main( int argc, char *argv[] ) {
 	}
 
 	
-	count[0] = 0;
+	count = 0;
 
 	for(int j = 0; j < MAX_ENTRIES; j++) {
 		if(entries[j]) {
-			count[0]++;
+			count++;
 		}
 	}
 
-	fwrite(count, sizeof(int), 1, file);
+	fwrite(&count, sizeof(int), 1, file);
 
 	for(int j = 0; j < MAX_ENTRIES; j++) {
 		if(entries[j]){
-
-			//fwrite(entries[j]->size, sizeof(size_t), 1, file);
-			//		entries[i] = calloc(sizeof(struct entry), 1);
-
-			size[0] = strlen(entries[j]->full_path);
-			fwrite(size, sizeof(size_t), 1, file);
-			fwrite(entries[j]->full_path, sizeof(char), size[0], file);
-			
-			isDir[0] = entries[j]->isDir;
-			fwrite(isDir, sizeof(int), 1, file);
-
-			time[0] = entries[j]->atime;
-			fwrite(time, sizeof(time_t), 1, file);
-
-			time[0] = entries[j]->mtime;
-			fwrite(time, sizeof(time_t), 1, file);
-
-			time[0] = entries[j]->ctime;
-			fwrite(time, sizeof(time_t), 1, file);
-
-			size[0] = (size_t) entries[j]->size;
-			fwrite(size, sizeof(size_t), 1, file);
+			size = strlen(entries[j]->full_path);
+			fwrite(&size, sizeof(size_t), 1, file);
+			fwrite(entries[j]->full_path, sizeof(char), size, file);
+			fwrite(&entries[j]->isDir, sizeof(int), 1, file);
+			fwrite(&entries[j]->atime, sizeof(time_t), 1, file);
+			fwrite(&entries[j]->mtime, sizeof(time_t), 1, file);
+			fwrite(&entries[j]->ctime, sizeof(time_t), 1, file);
+			fwrite(&entries[j]->size, sizeof(size_t), 1, file);
 
 			if(!entries[j]->isDir && entries[j]->size > 0) {
 				fwrite(entries[j]->content, sizeof(char), entries[j]->size, file);
